@@ -1,0 +1,22 @@
+{
+  "devDependencies": {
+    "@openzeppelin/contracts": "^3.4.0",
+    "chai": "^4.3.0",
+    "ethereum-waffle": "^3.3.0",
+    "mocha": "^8.2.1",
+    "solc": "0.7.6",
+    "ts-node": "^9.1.1"
+  },
+  "scripts": {
+    "test": "mocha",
+    "build": "yarn compile && tsc -p tsconfig.build.json",
+    "clean": "rimraf build dist",
+    "clean:contracts": "rimraf build",
+    "compile": "waffle waffle.json && yarn typechain",
+    "typechain": "typechain --target ethers-v5 --outDir build 'build/*.json'",
+    "deploy": "node dist/src/index.js secrets/example.json"
+  },
+  "dependencies": {
+     "typescript": "4.1.2"
+  }
+}
