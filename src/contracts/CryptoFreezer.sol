@@ -3,24 +3,35 @@ pragma solidity 0.7.6;
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "IPriceFetcher.sol";
 
 contract CryptoFreezer is Ownable {
     struct Deposit {
-        IERC20 token;
+        address token;
         uint256 value;
         uint256 unlockTimeUTC;
-        uint256 maxPrice;
+        uint256 minPrice;
     }
 
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    uint256 maxTimeLockPeriod = 5 * 365 days;
+
     EnumerableSet.AddressSet private _supportedTokens;
     // user => deposits[]
-    mapping(address => Deposit[]) private _deposits;
+    mapping(address => Deposit[]) public deposits;
+    IPriceFetcher private _priceFetcher = IPriceFetcher(0x0);
 
     event SupportedTokenAdded(IERC20 indexed token);
-    event NewDeposit(IERC20 indexed token, address indexed owner, uint256 value, uint256 unlockTimeUTC, uint256 maxPrice);
-    event Withdraw(IERC20 indexed token, address indexed owner, uint256 value, uint256 unlockTimeUTC, uint256 maxPrice);
+    event NewDeposit(
+        address indexed token,
+        address indexed owner,
+        uint256 value,
+        uint256 unlockTimeUTC,
+        uint256 minPrice,
+        uint256 index
+    );
+    event Withdraw(address indexed token, address indexed owner, uint256 value, uint256 unlockTimeUTC, uint256 minPrice);
 
     constructor()  {
     }
@@ -32,41 +43,100 @@ contract CryptoFreezer is Ownable {
         emit SupportedTokenAdded(token);
     }
 
+    function setPriceFetcher(IPriceFetcher fetcher) onlyOwner public {
+        _priceFetcher = fetcher;
+    }
+
+    function setMaxTimeLockPeriod(uint256 newMaxTimeLockPeriod) onlyOwner public {
+        maxTimeLockPeriod = newMaxTimeLockPeriod;
+    }
+
     function isTokenSupported(IERC20 token) view public returns (bool) {
         return _supportedTokens.contains(address(token));
     }
 
-    function depositERC20(IERC20 token, uint256 value, uint256 unlockTimeUTC, uint256 maxPrice) public {
-        depositERC20(token, value, unlockTimeUTC, maxPrice, msg.sender);
+    function isUnlocked(address owner, uint256 depositIndex) public view returns(bool) {
+        Deposit memory deposit = deposits[owner][depositIndex];
+        return _isUnlocked(deposit);
+    }
+
+    function _isUnlocked(Deposit memory deposit) internal view returns(bool) {
+        if(block.timestamp < deposit.unlockTimeUTC) {
+            return address(_priceFetcher) != address(0x0)
+                && deposit.minPrice >= _priceFetcher.currentPrice(deposit.token);
+        } else {
+            return true;
+        }
+    }
+
+    function depositERC20(IERC20 token, uint256 value, uint256 unlockTimeUTC, uint256 minPrice) public {
+        depositERC20(token, value, unlockTimeUTC, minPrice, msg.sender);
     }
 
     function depositERC20(
         IERC20 token,
         uint256 value,
         uint256 unlockTimeUTC,
-        uint256 maxPrice,
+        uint256 minPrice,
         address owner
     ) public {
-        require(unlockTimeUTC > block.timestamp);
-        require(isTokenSupported(token));
+        require(unlockTimeUTC > block.timestamp, "Unlock time set in past");
+        require(isTokenSupported(token), "Token not supported");
+        require(unlockTimeUTC - block.timestamp <= maxTimeLockPeriod, "Time lock period too long");
 
-        _deposits[owner].push(Deposit(token, value, unlockTimeUTC, maxPrice));
+        require(token.transferFrom(owner, address(this), value), "Cannot transfer ERC20 (deposit)");
+        deposits[owner].push(Deposit(address(token), value, unlockTimeUTC, minPrice));
 
-        token.transferFrom(owner, address(this), value);
-        emit NewDeposit(token, owner, value, unlockTimeUTC, maxPrice);
+        emit NewDeposit(address(token), owner, value, unlockTimeUTC, minPrice, deposits[owner].length - 1);
     }
 
     function withdrawERC20(
-        IERC20 token,
         address owner,
         uint256 depositIndex
     ) public {
-        Deposit memory deposit = _deposits[owner][depositIndex];
-        require(block.timestamp > deposit.unlockTimeUTC, "Deposit locked");
+        Deposit memory deposit = deposits[owner][depositIndex];
+        IERC20 token = IERC20(deposits[owner][depositIndex].token);
 
-        delete _deposits[owner][depositIndex];
-        token.transfer(owner, deposit.values);
+        require(_isUnlocked(deposit), "Deposit is locked");
 
-        emit Withdraw(token, owner, deposit.value, deposit.unlockTimeUTC, deposit.maxPrice);
+        // Withdrawing
+        delete deposits[owner][depositIndex];
+        require(token.transfer(owner, deposit.value), "Cannot transfer ERC20 (withdraw)");
+
+        emit Withdraw(address(token), owner, deposit.value, deposit.unlockTimeUTC, deposit.minPrice);
+    }
+
+    function depositETH(
+        uint256 unlockTimeUTC,
+        uint256 minPrice
+    ) payable public {
+        depositETH(unlockTimeUTC, minPrice, msg.sender);
+    }
+
+    function depositETH(
+        uint256 unlockTimeUTC,
+        uint256 minPrice,
+        address owner
+    ) payable public {
+        require(unlockTimeUTC > block.timestamp, "Unlock time set in past");
+
+        deposits[owner].push(Deposit(address(0), msg.value, unlockTimeUTC, minPrice));
+
+        emit NewDeposit(address(0), owner, msg.value, unlockTimeUTC, minPrice, deposits[owner].length - 1);
+    }
+
+    function withdrawETH(
+        address payable owner,
+        uint256 depositIndex
+    ) public {
+        Deposit memory deposit = deposits[owner][depositIndex];
+
+        require(_isUnlocked(deposit), "Deposit is locked");
+
+        // Withdrawing
+        delete deposits[owner][depositIndex];
+        owner.transfer(deposit.value);
+
+        emit Withdraw(address(0), owner, deposit.value, deposit.unlockTimeUTC, deposit.minPrice);
     }
 }
