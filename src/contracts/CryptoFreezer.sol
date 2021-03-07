@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "IPriceFetcher.sol";
+import "IMigrationAgent.sol";
 
 contract CryptoFreezer is Ownable {
     struct Deposit {
@@ -23,6 +24,8 @@ contract CryptoFreezer is Ownable {
     // user => deposits[]
     mapping(address => Deposit[]) public deposits;
     IPriceFetcher private _priceFetcher = IPriceFetcher(0x0);
+
+    address public migrationAgent = address(0);
 
     event SupportedTokenAdded(IERC20 indexed token);
     event NewDeposit(
@@ -148,14 +151,14 @@ contract CryptoFreezer is Ownable {
         emit Withdraw(address(0), owner, deposit.value, deposit.unlockTimeUTC, deposit.minPrice);
     }
 
-    function addToDeposit(
+    function addToDepositERC20(
         uint256 depositIndex,
         uint256 value
     ) public {
-        addToDeposit(depositIndex, value, msg.sender);
+        addToDepositERC20(depositIndex, value, msg.sender);
     }
 
-    function addToDeposit(
+    function addToDepositERC20(
         uint256 depositIndex,
         uint256 value,
         address owner
@@ -171,5 +174,30 @@ contract CryptoFreezer is Ownable {
         deposit.value = deposit.value.add(value);
 
         emit AddToDeposit(address(token), owner, value, depositIndex);
+    }
+
+    function setMigrationAgent(address newMigrationAgent) onlyOwner public {
+        require(migrationAgent == address(0));
+        migrationAgent = newMigrationAgent;
+    }
+
+    function migrate(uint256 depositIndex) public {
+        require(migrationAgent != address(0));
+
+        Deposit memory deposit = deposits[msg.sender][depositIndex];
+        require(deposit.value > 0, "Deposit does not exist");
+
+        IMigrationAgent agent = IMigrationAgent(migrationAgent);
+
+        agent.makeMigration(deposit.token, deposit.value, deposit.unlockTimeUTC, deposit.minPrice);
+
+        delete deposits[msg.sender][depositIndex];
+
+        if(deposit.token != address(0)) {
+            require(IERC20(deposit.token).transfer(agent.migrationTarget(), deposit.value));
+        } else { // ETH case
+            agent.migrationTarget().transfer(deposit.value);
+        }
+
     }
 }
