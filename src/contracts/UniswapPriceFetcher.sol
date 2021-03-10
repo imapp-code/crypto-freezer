@@ -22,10 +22,10 @@ contract UniswapPriceFetcher is IPriceFetcher {
         return DECIMAL;
     }
 
-    function _alignValue(uint256 value, uint8 decimals, uint8 targetDecimals) pure internal returns (uint256) {
-        return targetDecimals > decimals ?
-            value.mul((10**(targetDecimals - decimals))) :
-            value.div((10**(decimals - targetDecimals)));
+    function _alignValue(uint256 value, uint8 dec, uint8 targetDec) pure internal returns (uint256) {
+        return targetDec > dec ?
+            value.mul((10**(targetDec - dec))) :
+            value.div((10**(dec - targetDec)));
     }
 
     function _getReserveAligned(IUniswapV2Pair pair) view internal returns (uint256, uint256) {

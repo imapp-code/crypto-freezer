@@ -1,13 +1,14 @@
 pragma solidity 0.7.6;
 
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "IPriceFetcher.sol";
 import "IMigrationAgent.sol";
 
-contract CryptoFreezer is Ownable {
+contract CryptoFreezer is Ownable, ReentrancyGuard {
     struct Deposit {
         address token;
         uint256 value;
@@ -18,7 +19,7 @@ contract CryptoFreezer is Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeMath for uint256;
 
-    uint256 maxTimeLockPeriod = 5 * 365 days;
+    uint256 public maxTimeLockPeriod = 5 * 365 days;
 
     EnumerableSet.AddressSet private _supportedTokens;
     // user => deposits[]
@@ -37,7 +38,7 @@ contract CryptoFreezer is Ownable {
         uint256 index
     );
     event Withdraw(address indexed token, address indexed owner, uint256 value, uint256 unlockTimeUTC, uint256 minPrice);
-    event AddToDeposit(address indexed token, address indexed owner, uint256 value, uint256 depositIndex);
+    event AddToDeposit(address indexed owner, uint256 depositIndex, uint256 value);
 
     constructor()  {
     }
@@ -85,14 +86,15 @@ contract CryptoFreezer is Ownable {
         uint256 unlockTimeUTC,
         uint256 minPrice,
         address owner
-    ) public {
-        require(unlockTimeUTC > block.timestamp, "Unlock time set in past");
+    ) nonReentrant public {
+        require(value > 0, "Values is 0");
+        require(unlockTimeUTC > block.timestamp, "Unlock time set in the past");
         require(isTokenSupported(token), "Token not supported");
         require(unlockTimeUTC - block.timestamp <= maxTimeLockPeriod, "Time lock period too long");
-        require(value > 0, "Values is 0");
+        require(owner != address(0));
 
-        require(token.transferFrom(msg.sender, address(this), value), "Cannot transfer ERC20 (deposit)");
         deposits[owner].push(Deposit(address(token), value, unlockTimeUTC, minPrice));
+        require(token.transferFrom(msg.sender, address(this), value), "Cannot transfer ERC20 (deposit)");
 
         emit NewDeposit(address(token), owner, value, unlockTimeUTC, minPrice, deposits[owner].length - 1);
     }
@@ -100,7 +102,9 @@ contract CryptoFreezer is Ownable {
     function withdrawERC20(
         address owner,
         uint256 depositIndex
-    ) public {
+    ) nonReentrant public {
+        require(owner != address(0));
+        require(deposits[owner].length > depositIndex, "Invalid deposit index");
         Deposit storage deposit = deposits[owner][depositIndex];
         require(deposit.value > 0, "Deposit does not exist");
 
@@ -126,9 +130,11 @@ contract CryptoFreezer is Ownable {
         uint256 unlockTimeUTC,
         uint256 minPrice,
         address owner
-    ) payable public {
-        require(unlockTimeUTC > block.timestamp, "Unlock time set in past");
+    ) nonReentrant payable public {
         require(msg.value > 0, "Values is 0");
+        require(unlockTimeUTC > block.timestamp, "Unlock time set in the past");
+        require(unlockTimeUTC - block.timestamp <= maxTimeLockPeriod, "Time lock period too long");
+        require(owner != address(0));
 
         deposits[owner].push(Deposit(address(0), msg.value, unlockTimeUTC, minPrice));
 
@@ -138,7 +144,8 @@ contract CryptoFreezer is Ownable {
     function withdrawETH(
         address payable owner,
         uint256 depositIndex
-    ) public {
+    ) nonReentrant public {
+        require(deposits[owner].length > depositIndex, "Invalid deposit index");
         Deposit storage deposit = deposits[owner][depositIndex];
 
         require(deposit.value > 0, "Deposit does not exist");
@@ -162,18 +169,45 @@ contract CryptoFreezer is Ownable {
         uint256 depositIndex,
         uint256 value,
         address owner
-    ) public {
+    ) nonReentrant public {
+        require(value > 0, "Values is 0");
+        require(deposits[owner].length > depositIndex, "Invalid deposit index");
         Deposit storage deposit = deposits[owner][depositIndex];
         require(deposit.value > 0, "Deposit does not exist");
 
         require(!_isUnlocked(deposit), "Deposit is unlocked");
 
+        require(deposits[owner][depositIndex].token != address(0), "Adding to wrong deposit type (ERC20)");
         IERC20 token = IERC20(deposits[owner][depositIndex].token);
 
-        require(token.transferFrom(msg.sender, address(this), value), "Cannot transfer ERC20 (deposit)");
         deposit.value = deposit.value.add(value);
+        require(token.transferFrom(msg.sender, address(this), value), "Cannot transfer ERC20 (deposit)");
 
-        emit AddToDeposit(address(token), owner, value, depositIndex);
+        emit AddToDeposit(owner, depositIndex, value);
+    }
+
+    function addToDepositETH(
+        uint256 depositIndex
+    ) payable public {
+        addToDepositETH(depositIndex, msg.sender);
+    }
+
+    function addToDepositETH(
+        uint256 depositIndex,
+        address owner
+    ) payable nonReentrant public {
+        require(msg.value > 0, "Values is 0");
+        require(deposits[owner].length > depositIndex, "Invalid deposit index");
+        Deposit storage deposit = deposits[owner][depositIndex];
+        require(deposit.value > 0, "Deposit does not exist");
+
+        require(!_isUnlocked(deposit), "Deposit is unlocked");
+
+        require(deposits[owner][depositIndex].token == address(0), "Adding to wrong deposit type (ETH)");
+
+        deposit.value = deposit.value.add(msg.value);
+
+        emit AddToDeposit(owner, depositIndex, msg.value);
     }
 
     function setMigrationAgent(address newMigrationAgent) onlyOwner public {
@@ -181,7 +215,7 @@ contract CryptoFreezer is Ownable {
         migrationAgent = newMigrationAgent;
     }
 
-    function migrate(uint256 depositIndex) public {
+    function migrate(uint256 depositIndex) nonReentrant public {
         require(migrationAgent != address(0));
 
         Deposit memory deposit = deposits[msg.sender][depositIndex];
