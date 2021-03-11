@@ -40,7 +40,10 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
     event Withdraw(address indexed token, address indexed owner, uint256 value, uint256 unlockTimeUTC, uint256 minPrice);
     event AddToDeposit(address indexed owner, uint256 depositIndex, uint256 value);
 
-    constructor()  {
+    constructor() {}
+
+    function priceDecimals() public view returns (uint8) {
+        return _priceFetcher.decimals();
     }
 
     function addSupportedToken(IERC20 token) onlyOwner public {
@@ -63,14 +66,13 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
     }
 
     function isUnlocked(address owner, uint256 depositIndex) public view returns(bool) {
-        Deposit memory deposit = deposits[owner][depositIndex];
-        return _isUnlocked(deposit);
+        return _isUnlocked(deposits[owner][depositIndex]);
     }
 
     function _isUnlocked(Deposit memory deposit) internal view returns(bool) {
         if(block.timestamp < deposit.unlockTimeUTC) {
             return address(_priceFetcher) != address(0x0)
-                && deposit.minPrice >= _priceFetcher.currentPrice(deposit.token);
+                && deposit.minPrice <= _priceFetcher.currentPrice(deposit.token);
         } else {
             return true;
         }
@@ -103,14 +105,15 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         address owner,
         uint256 depositIndex
     ) nonReentrant public {
-        require(owner != address(0));
+        require(owner != address(0), "Owner address is 0");
         require(deposits[owner].length > depositIndex, "Invalid deposit index");
-        Deposit storage deposit = deposits[owner][depositIndex];
+        Deposit memory deposit = deposits[owner][depositIndex];
         require(deposit.value > 0, "Deposit does not exist");
 
         require(_isUnlocked(deposit), "Deposit is locked");
+        require(deposits[owner][depositIndex].token != address(0), "Withdrawing wrong deposit type (ERC20)");
 
-        IERC20 token = IERC20(deposits[owner][depositIndex].token);
+        IERC20 token = IERC20(deposit.token);
 
         // Withdrawing
         delete deposits[owner][depositIndex];
@@ -145,11 +148,13 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         address payable owner,
         uint256 depositIndex
     ) nonReentrant public {
+        require(owner != address(0), "Owner address is 0");
         require(deposits[owner].length > depositIndex, "Invalid deposit index");
-        Deposit storage deposit = deposits[owner][depositIndex];
+        Deposit memory deposit = deposits[owner][depositIndex];
 
         require(deposit.value > 0, "Deposit does not exist");
         require(_isUnlocked(deposit), "Deposit is locked");
+        require(deposits[owner][depositIndex].token == address(0), "Withdrawing wrong deposit type (ETH)");
 
         // Withdrawing
         delete deposits[owner][depositIndex];
@@ -178,7 +183,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         require(!_isUnlocked(deposit), "Deposit is unlocked");
 
         require(deposits[owner][depositIndex].token != address(0), "Adding to wrong deposit type (ERC20)");
-        IERC20 token = IERC20(deposits[owner][depositIndex].token);
+        IERC20 token = IERC20(deposit.token);
 
         deposit.value = deposit.value.add(value);
         require(token.transferFrom(msg.sender, address(this), value), "Cannot transfer ERC20 (deposit)");
@@ -211,7 +216,6 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
     }
 
     function setMigrationAgent(address newMigrationAgent) onlyOwner public {
-        require(migrationAgent == address(0));
         migrationAgent = newMigrationAgent;
     }
 
@@ -223,7 +227,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
 
         IMigrationAgent agent = IMigrationAgent(migrationAgent);
 
-        agent.makeMigration(deposit.token, deposit.value, deposit.unlockTimeUTC, deposit.minPrice);
+        agent.makeMigration(msg.sender, depositIndex);
 
         delete deposits[msg.sender][depositIndex];
 
