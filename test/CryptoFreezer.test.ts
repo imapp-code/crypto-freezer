@@ -23,9 +23,10 @@ function zeroAddress() : string {
 
 describe('TestCryptoFreezer', () => {
     const provider = new MockProvider()
-    const [deployer, user] = provider.getWallets();
+    const [deployer, user, userTwo] = provider.getWallets();
     let asUser: AsWalletFunction = asWalletFactory(user);
     let asDeployer: AsWalletFunction = asWalletFactory(deployer);
+    let asUserTwo: AsWalletFunction = asWalletFactory(userTwo);
 
     let freezer : Contract;
     let token: Contract;
@@ -72,8 +73,11 @@ describe('TestCryptoFreezer', () => {
             const newBalanceUser = await token.balanceOf(user.address)
             const newBalanceFreezer = await token.balanceOf(freezer.address)
 
-            expect(newBalanceUser).to.eq(balanceUser.sub(value))
-            expect(newBalanceFreezer).to.eq(balanceFreezer.add(value))
+            await expect(newBalanceUser).to.eq(balanceUser.sub(value))
+            await expect(newBalanceFreezer).to.eq(balanceFreezer.add(value))
+
+            const lastIndex = await freezer.getLastDepositIndex(user.address)
+            await expect(lastIndex).to.eq(1)
         });
 
         it('Deposits ETH', async () => {
@@ -102,6 +106,9 @@ describe('TestCryptoFreezer', () => {
             const newBalanceFreezer = await provider.getBalance(freezer.address)
 
             await expect(newBalanceFreezer).to.eq(balanceFreezer.add(value))
+
+            const lastIndex = await freezer.getLastDepositIndex(user.address)
+            await expect(lastIndex).to.eq(1)
         });
 
         it("Allows to deposit ERC20 using different address", async () => {
@@ -137,7 +144,7 @@ describe('TestCryptoFreezer', () => {
 
         it("Doesn't allow to deposit for unlock time set in the past", async () => {
             await freezer.addSupportedToken(token.address)
-            const unlockTimeUTC = now()
+            const unlockTimeUTC = now() - 1
             const value = utils.parseEther("10")
             await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
                 (token.address, value, unlockTimeUTC, infinity()))
@@ -153,10 +160,10 @@ describe('TestCryptoFreezer', () => {
             const value = 0
             await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
                 (token.address, value, unlockTimeUTC, infinity()))
-                .to.be.revertedWith("Values is 0");
+                .to.be.revertedWith("Value is 0");
 
             await expect(asUser(freezer)['depositETH(uint256,uint256)']
-                 (unlockTimeUTC, infinity(), {value: value})).to.be.revertedWith("Values is 0")
+                 (unlockTimeUTC, infinity(), {value: value})).to.be.revertedWith("Value is 0")
         });
 
         it("Reverts when cannot ERC20 transfer not allowed (no allowance)", async () => {
@@ -254,7 +261,7 @@ describe('TestCryptoFreezer', () => {
             )
 
             await expect(asUser(freezer)['addToDepositERC20(uint256,uint256)']
-                (0, 0)).to.be.revertedWith("Values is 0")
+                (0, 0)).to.be.revertedWith("Value is 0")
 
             await expect(asUser(freezer)['addToDepositERC20(uint256,uint256)']
                 (1, value)).to.be.revertedWith("Invalid deposit index")
@@ -277,7 +284,7 @@ describe('TestCryptoFreezer', () => {
             )
 
             await expect(asUser(freezer)['addToDepositETH(uint256)']
-                (0, {value: 0})).to.be.revertedWith("Values is 0")
+                (0, {value: 0})).to.be.revertedWith("Value is 0")
 
             await expect(asUser(freezer)['addToDepositETH(uint256)']
                 (1, {value: value})).to.be.revertedWith("Invalid deposit index")
@@ -324,7 +331,7 @@ describe('TestCryptoFreezer', () => {
 
                     await expect(asUser(freezer)['withdrawERC20(address,uint256)']
                         (user.address, 0)).to.emit(freezer, "Withdraw")
-                        .withArgs(token.address, user.address, value, unlockTimeUTC, infinity())
+                        .withArgs(token.address, user.address, value, 0, unlockTimeUTC, infinity())
 
                     const deposit = await freezer.deposits(user.address, 0)
                     await expect(deposit.token).to.eq(zeroAddress());
@@ -339,7 +346,7 @@ describe('TestCryptoFreezer', () => {
                 it('Cannot withdraw twice', async () => {
                     await expect(asUser(freezer)['withdrawERC20(address,uint256)']
                         (user.address, 0)).to.emit(freezer, "Withdraw")
-                        .withArgs(token.address, user.address, value, unlockTimeUTC, infinity())
+                        .withArgs(token.address, user.address, value, 0, unlockTimeUTC, infinity())
 
                     await expect(asUser(freezer)['withdrawERC20(address,uint256)']
                         (user.address, 0)).to.be.revertedWith("Deposit does not exist")
@@ -391,7 +398,7 @@ describe('TestCryptoFreezer', () => {
                 it('Withdraws ETH deposit', async () => {
                     await expect(asUser(freezer)['withdrawETH(address,uint256)']
                         (user.address, 0)).to.emit(freezer, "Withdraw")
-                        .withArgs(zeroAddress(), user.address, value, unlockTimeUTC, infinity())
+                        .withArgs(zeroAddress(), user.address, value, 0, unlockTimeUTC, infinity())
 
                     const deposit = await freezer.deposits(user.address, 0)
                     await expect(deposit.token).to.eq(zeroAddress());
@@ -403,7 +410,7 @@ describe('TestCryptoFreezer', () => {
                 it('Cannot withdraw twice', async () => {
                     await expect(asUser(freezer)['withdrawETH(address,uint256)']
                         (user.address, 0)).to.emit(freezer, "Withdraw")
-                        .withArgs(zeroAddress(), user.address, value, unlockTimeUTC, infinity())
+                        .withArgs(zeroAddress(), user.address, value, 0, unlockTimeUTC, infinity())
 
                     await expect(asUser(freezer)['withdrawETH(address,uint256)']
                         (user.address, 0)).to.be.revertedWith("Deposit does not exist")
@@ -433,49 +440,185 @@ describe('TestCryptoFreezer', () => {
     describe('withdraw with price fetcher set', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
+
         let minPrice: number
+        let priceDecimals: number
 
         beforeEach(async () => {
             await freezer.addSupportedToken(token.address)
 
+            priceDecimals = await freezer.priceDecimals()
             const priceFetcherDecimals = await priceFetcher.decimals()
             await priceFetcher.setPrice(token.address, 100*10**priceFetcherDecimals)
-
-            const priceDecimals = await freezer.priceDecimals()
-
-            minPrice = 250*10**priceDecimals
-            await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-                (token.address, value, unlockTimeUTC, minPrice)).to.emit(freezer, "NewDeposit").withArgs(
-                token.address, user.address, value, unlockTimeUTC, minPrice, 0
-            )
+            await priceFetcher.setPrice(zeroAddress(), 105*10**priceFetcherDecimals)
         })
 
-        it("Withdraws when price is above min limit", async () => {
-            const currentPrice = 251*10**(await freezer.priceDecimals())
-            await priceFetcher.setPrice(token.address, BigNumber.from(currentPrice))
+        describe('simple withdraw ERC20', () => {
+            beforeEach(async () => {
+                minPrice = 250*10**priceDecimals
+                await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
+                    (token.address, value, unlockTimeUTC, minPrice)).to.emit(freezer, "NewDeposit").withArgs(
+                    token.address, user.address, value, unlockTimeUTC, minPrice, 0
+                )
+            })
 
-            await expect(asUser(freezer)['withdrawERC20(address,uint256)']
-                (user.address, 0)).to.emit(freezer, "Withdraw")
-                .withArgs(token.address, user.address, value, unlockTimeUTC, minPrice)
+            it("Withdraws when price is above min limit", async () => {
+                const currentPrice = 251*10**(await freezer.priceDecimals())
+                await priceFetcher.setPrice(token.address, BigNumber.from(currentPrice))
+
+                await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                    (user.address, 0)).to.emit(freezer, "Withdraw")
+                    .withArgs(token.address, user.address, value, 0, unlockTimeUTC, minPrice)
+            })
+
+            it("Withdraws when price is  equal min limit", async () => {
+                const currentPrice = 250*10**(await freezer.priceDecimals())
+                await priceFetcher.setPrice(token.address, BigNumber.from(currentPrice))
+
+                await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                    (user.address, 0)).to.emit(freezer, "Withdraw")
+                    .withArgs(token.address, user.address, value, 0, unlockTimeUTC, minPrice)
+            })
+
+            it("Withdraws when price is above min limit from different account", async () => {
+                const userBalance = await token.balanceOf(user.address)
+                const freezerBalance = await token.balanceOf(freezer.address)
+
+                const currentPrice = 251*10**(await freezer.priceDecimals())
+                await priceFetcher.setPrice(token.address, BigNumber.from(currentPrice))
+
+                await expect(asUserTwo(freezer)['withdrawERC20(address,uint256)']
+                    (user.address, 0)).to.emit(freezer, "Withdraw")
+                    .withArgs(token.address, user.address, value, 0, unlockTimeUTC, minPrice)
+
+                const userBalanceNew = await token.balanceOf(user.address)
+                const freezerBalanceNew = await token.balanceOf(freezer.address)
+
+                expect(userBalanceNew).to.eq(userBalance.add(value))
+                expect(freezerBalanceNew).to.eq(freezerBalance.sub(value))
+            })
+
+            it("does not withdraw when price is below min limit", async () => {
+                const currentPrice = 249*10**(await freezer.priceDecimals())
+                await priceFetcher.setPrice(token.address, BigNumber.from(currentPrice))
+
+                await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                    (user.address, 0)).to.be.revertedWith("Deposit is locked")
+            })
         })
 
-        it("Withdraws when price is  equal min limit", async () => {
-            const currentPrice = 250*10**(await freezer.priceDecimals())
-            await priceFetcher.setPrice(token.address, BigNumber.from(currentPrice))
+        describe("Emergency withdraw ERC20", () => {
+            beforeEach(async () => {
+                await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
+                    (token.address, value, unlockTimeUTC, infinity())).to.emit(freezer, "NewDeposit").withArgs(
+                    token.address, user.address, value, unlockTimeUTC, infinity(), 0
+                )
+            })
 
-            await expect(asUser(freezer)['withdrawERC20(address,uint256)']
-                (user.address, 0)).to.emit(freezer, "Withdraw")
-                .withArgs(token.address, user.address, value, unlockTimeUTC, minPrice)
+            it("allow withdraw when current price set to infinity and min price not set.", async () => {
+                await priceFetcher.setPrice(token.address, infinity())
+
+                await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                    (user.address, 0)).to.emit(freezer, "Withdraw")
+                    .withArgs(token.address, user.address, value, 0, unlockTimeUTC, infinity())
+            })
+
+            it("does not allow withdraw when current price set to infinity - 1 and min price not set.", async () => {
+                await priceFetcher.setPrice(token.address, infinity().sub(1))
+
+                await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                    (user.address, 0)).to.be.revertedWith("Deposit is locked")
+            })
+
+            it("does not allow withdraw when current price set to 1 and min price not set.", async () => {
+                await priceFetcher.setPrice(token.address, 1)
+
+                await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                    (user.address, 0)).to.be.revertedWith("Deposit is locked")
+            })
         })
 
-        it("does not withdraw when price is below min limit", async () => {
-            const currentPrice = 249*10**(await freezer.priceDecimals())
-            await priceFetcher.setPrice(token.address, BigNumber.from(currentPrice))
+        describe('simple withdraw ETH', () => {
+            beforeEach(async () => {
+                minPrice = 255*10**priceDecimals
+                await expect(asUser(freezer)['depositETH(uint256,uint256)']
+                    (unlockTimeUTC, minPrice, {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                    zeroAddress(), user.address, value, unlockTimeUTC, minPrice, 0
+                )
+            })
 
-            await expect(asUser(freezer)['withdrawERC20(address,uint256)']
-                (user.address, 0)).to.be.revertedWith("Deposit is locked")
+            it("Withdraws when price is above min limit", async () => {
+                const currentPrice = 256*10**(await freezer.priceDecimals())
+                await priceFetcher.setPrice(zeroAddress(), currentPrice)
+
+                await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                    (user.address, 0)).to.emit(freezer, "Withdraw")
+                    .withArgs(zeroAddress(), user.address, value, 0, unlockTimeUTC, minPrice)
+            })
+
+            it("Withdraws when price is equal min limit", async () => {
+                const currentPrice = 255*10**(await freezer.priceDecimals())
+                await priceFetcher.setPrice(zeroAddress(), currentPrice)
+
+                await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                    (user.address, 0)).to.emit(freezer, "Withdraw")
+                    .withArgs(zeroAddress(), user.address, value, 0, unlockTimeUTC, minPrice)
+            })
+
+            it("Withdraws when price is above min limit from different account", async () => {
+                const freezerBalance = await provider.getBalance(freezer.address)
+
+                const currentPrice = 256*10**(await freezer.priceDecimals())
+                await priceFetcher.setPrice(zeroAddress(), currentPrice)
+
+                await expect(asUserTwo(freezer)['withdrawETH(address,uint256)']
+                    (user.address, 0)).to.emit(freezer, "Withdraw")
+                    .withArgs(zeroAddress(), user.address, value, 0, unlockTimeUTC, minPrice)
+
+                const freezerBalanceNew = await provider.getBalance(freezer.address)
+
+                expect(freezerBalanceNew).to.eq(freezerBalance.sub(value))
+            })
+
+            it("does not withdraw when price is below min limit", async () => {
+                const currentPrice = 254*10**(await freezer.priceDecimals())
+                await priceFetcher.setPrice(token.address, currentPrice)
+
+                await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                    (user.address, 0)).to.be.revertedWith("Deposit is locked")
+            })
         })
 
+        describe("Emergency withdraw ETH", () => {
+            beforeEach(async () => {
+                await expect(asUser(freezer)['depositETH(uint256,uint256)']
+                    (unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                    zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 0
+                )
+            })
+
+            it("allow withdraw when current price set to infinity and min price not set.", async () => {
+                await priceFetcher.setPrice(zeroAddress(), infinity())
+
+                await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                    (user.address, 0)).to.emit(freezer, "Withdraw")
+                    .withArgs(zeroAddress(), user.address, value, 0, unlockTimeUTC, infinity())
+            })
+
+            it("does not allow withdraw when current price set to infinity - 1 and min price not set.", async () => {
+                await priceFetcher.setPrice(zeroAddress(), infinity().sub(1))
+
+                await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                    (user.address, 0)).to.be.revertedWith("Deposit is locked")
+            })
+
+            it("does not allow withdraw when current price set to 1 and min price not set.", async () => {
+                await priceFetcher.setPrice(zeroAddress(), 1)
+
+                await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                    (user.address, 0)).to.be.revertedWith("Deposit is locked")
+            })
+        })
     })
 
 });

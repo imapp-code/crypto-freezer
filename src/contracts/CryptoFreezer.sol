@@ -37,7 +37,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         uint256 minPrice,
         uint256 index
     );
-    event Withdraw(address indexed token, address indexed owner, uint256 value, uint256 unlockTimeUTC, uint256 minPrice);
+    event Withdraw(address indexed token, address indexed owner, uint256 depositIndex, uint256 value, uint256 unlockTimeUTC, uint256 minPrice);
     event AddToDeposit(address indexed owner, uint256 depositIndex, uint256 value);
 
     constructor() {}
@@ -69,6 +69,10 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         return _isUnlocked(deposits[owner][depositIndex]);
     }
 
+    function getLastDepositIndex(address owner) public view returns (uint256) {
+        return deposits[owner].length;
+    }
+
     function _isUnlocked(Deposit memory deposit) internal view returns(bool) {
         if(block.timestamp < deposit.unlockTimeUTC) {
             return address(_priceFetcher) != address(0x0)
@@ -89,7 +93,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         uint256 minPrice,
         address owner
     ) nonReentrant public {
-        require(value > 0, "Values is 0");
+        require(value > 0, "Value is 0");
         require(unlockTimeUTC > block.timestamp, "Unlock time set in the past");
         require(isTokenSupported(token), "Token not supported");
         require(unlockTimeUTC - block.timestamp <= maxTimeLockPeriod, "Time lock period too long");
@@ -119,7 +123,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         delete deposits[owner][depositIndex];
         require(token.transfer(owner, deposit.value), "Cannot transfer ERC20 (withdraw)");
 
-        emit Withdraw(address(token), owner, deposit.value, deposit.unlockTimeUTC, deposit.minPrice);
+        emit Withdraw(address(token), owner, deposit.value, depositIndex, deposit.unlockTimeUTC, deposit.minPrice);
     }
 
     function depositETH(
@@ -134,7 +138,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         uint256 minPrice,
         address owner
     ) nonReentrant payable public {
-        require(msg.value > 0, "Values is 0");
+        require(msg.value > 0, "Value is 0");
         require(unlockTimeUTC > block.timestamp, "Unlock time set in the past");
         require(unlockTimeUTC - block.timestamp <= maxTimeLockPeriod, "Time lock period too long");
         require(owner != address(0));
@@ -160,7 +164,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         delete deposits[owner][depositIndex];
         owner.transfer(deposit.value);
 
-        emit Withdraw(address(0), owner, deposit.value, deposit.unlockTimeUTC, deposit.minPrice);
+        emit Withdraw(address(0), owner, deposit.value, depositIndex, deposit.unlockTimeUTC, deposit.minPrice);
     }
 
     function addToDepositERC20(
@@ -175,7 +179,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         uint256 value,
         address owner
     ) nonReentrant public {
-        require(value > 0, "Values is 0");
+        require(value > 0, "Value is 0");
         require(deposits[owner].length > depositIndex, "Invalid deposit index");
         Deposit storage deposit = deposits[owner][depositIndex];
         require(deposit.value > 0, "Deposit does not exist");
@@ -201,7 +205,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         uint256 depositIndex,
         address owner
     ) payable nonReentrant public {
-        require(msg.value > 0, "Values is 0");
+        require(msg.value > 0, "Value is 0");
         require(deposits[owner].length > depositIndex, "Invalid deposit index");
         Deposit storage deposit = deposits[owner][depositIndex];
         require(deposit.value > 0, "Deposit does not exist");
