@@ -24,7 +24,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
     EnumerableSet.AddressSet private _supportedTokens;
     // user => deposits[]
     mapping(address => Deposit[]) public deposits;
-    IPriceFetcher private _priceFetcher = IPriceFetcher(0x0);
+    IPriceFetcher public priceFetcher = IPriceFetcher(0x0);
 
     address public migrationAgent = address(0);
 
@@ -43,7 +43,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
     constructor() {}
 
     function priceDecimals() public view returns (uint8) {
-        return _priceFetcher.decimals();
+        return priceFetcher.decimals();
     }
 
     function addSupportedToken(IERC20 token) onlyOwner public {
@@ -54,7 +54,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
     }
 
     function setPriceFetcher(IPriceFetcher fetcher) onlyOwner public {
-        _priceFetcher = fetcher;
+        priceFetcher = fetcher;
     }
 
     function setMaxTimeLockPeriod(uint256 newMaxTimeLockPeriod) onlyOwner public {
@@ -75,8 +75,8 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
 
     function _isUnlocked(Deposit memory deposit) internal view returns(bool) {
         if(block.timestamp < deposit.unlockTimeUTC) {
-            return address(_priceFetcher) != address(0x0)
-                && deposit.minPrice <= _priceFetcher.currentPrice(deposit.token);
+            return address(priceFetcher) != address(0x0)
+                && deposit.minPrice <= priceFetcher.currentPrice(deposit.token);
         } else {
             return true;
         }
