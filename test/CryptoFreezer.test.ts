@@ -42,8 +42,8 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, value, unlockTimeUTC, 0)).to.emit(freezer, "NewDeposit").withArgs(
-                token.address, user.address, value, unlockTimeUTC, 0, 0
+            (token.address, value, unlockTimeUTC, infinity())).to.emit(freezer, "NewDeposit").withArgs(
+                token.address, user.address, value, unlockTimeUTC, infinity(), 0
         )
 
         await expect(asUser(freezer)['withdrawERC20(address,uint256)'](user.address, 0))
@@ -58,7 +58,7 @@ describe('TestCryptoFreezer', () => {
         await expect(deposit.token).to.eq(token.address)
         await expect(deposit.value).to.eq(value);
         await expect(deposit.unlockTimeUTC).to.eq(unlockTimeUTC);
-        await expect(deposit.minPrice).to.eq(0);
+        await expect(deposit.minPrice).to.eq(infinity());
 
         const newBalanceUser = await token.balanceOf(user.address)
         const newBalanceFreezer = await token.balanceOf(freezer.address)
@@ -72,8 +72,8 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
         await expect(asUser(freezer)['depositETH(uint256,uint256)']
-            (unlockTimeUTC, 0, {value: value})).to.emit(freezer, "NewDeposit").withArgs(
-                zeroAddress(), user.address, value, unlockTimeUTC, 0, 0
+            (unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 0
         )
 
         await expect(asUser(freezer)['withdrawETH(address,uint256)'](user.address, 0))
@@ -88,7 +88,7 @@ describe('TestCryptoFreezer', () => {
         await expect(deposit.token).to.eq(zeroAddress());
         await expect(deposit.value).to.eq(value);
         await expect(deposit.unlockTimeUTC).to.eq(unlockTimeUTC);
-        await expect(deposit.minPrice).to.eq(0);
+        await expect(deposit.minPrice).to.eq(infinity());
 
         const newBalanceFreezer = await provider.getBalance(freezer.address)
 
@@ -102,16 +102,16 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
         await expect(asDeployer(freezer)['depositERC20(address,uint256,uint256,uint256,address)']
-            (token.address, utils.parseEther("10"), unlockTimeUTC, 0, user.address))
+            (token.address, utils.parseEther("10"), unlockTimeUTC, infinity(), user.address))
             .to.emit(freezer, "NewDeposit").withArgs(
-                token.address, user.address, value, unlockTimeUTC, 0, 0
+                token.address, user.address, value, unlockTimeUTC, infinity(), 0
             )
 
         const deposit = await freezer.deposits(user.address, 0)
         await expect(deposit.token).to.eq(token.address);
         await expect(deposit.value).to.eq(value);
         await expect(deposit.unlockTimeUTC).to.eq(unlockTimeUTC);
-        await expect(deposit.minPrice).to.eq(0);
+        await expect(deposit.minPrice).to.eq(infinity());
     });
 
     it("Doesn't allow to deposit for longer period than max time lock period", async () => {
@@ -119,11 +119,11 @@ describe('TestCryptoFreezer', () => {
         const maxTimelockPeriod = await freezer.maxTimeLockPeriod()
         const unlockTimeUTC = now() + maxTimelockPeriod + 3600
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, utils.parseEther("10"), unlockTimeUTC, 0))
+            (token.address, utils.parseEther("10"), unlockTimeUTC, infinity()))
             .to.be.revertedWith("Time lock period too long");
 
         await expect(asUser(freezer)['depositETH(uint256,uint256)']
-             (unlockTimeUTC, 0, {value: utils.parseEther("10")})).to.be.revertedWith("Time lock period too long")
+             (unlockTimeUTC, infinity(), {value: utils.parseEther("10")})).to.be.revertedWith("Time lock period too long")
     });
 
     it("Doesn't allow to deposit for unlock time set in the past", async () => {
@@ -131,11 +131,11 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now()
         const value = utils.parseEther("10")
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, value, unlockTimeUTC, 0))
+            (token.address, value, unlockTimeUTC, infinity()))
             .to.be.revertedWith("Unlock time set in the past");
 
         await expect(asUser(freezer)['depositETH(uint256,uint256)']
-             (unlockTimeUTC, 0, {value: value})).to.be.revertedWith("Unlock time set in the past")
+             (unlockTimeUTC, infinity(), {value: value})).to.be.revertedWith("Unlock time set in the past")
     });
 
     it("Doesn't allow to deposit for zero value", async () => {
@@ -143,11 +143,11 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600;
         const value = 0
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, value, unlockTimeUTC, 0))
+            (token.address, value, unlockTimeUTC, infinity()))
             .to.be.revertedWith("Values is 0");
 
         await expect(asUser(freezer)['depositETH(uint256,uint256)']
-             (unlockTimeUTC, 0, {value: value})).to.be.revertedWith("Values is 0")
+             (unlockTimeUTC, infinity(), {value: value})).to.be.revertedWith("Values is 0")
     });
 
     it("Reverts when cannot ERC20 transfer not allowed (no allowance)", async () => {
@@ -157,7 +157,7 @@ describe('TestCryptoFreezer', () => {
 
         await asUser(token).decreaseAllowance(freezer.address, infinity())
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, value, unlockTimeUTC, 0))
+            (token.address, value, unlockTimeUTC, infinity()))
             .to.be.revertedWith("ERC20: transfer amount exceeds allowance");
     });
 
@@ -168,14 +168,14 @@ describe('TestCryptoFreezer', () => {
 
         await asUser(token).transfer(deployer.address, await token.balanceOf(user.address))
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, value, unlockTimeUTC, 0))
+            (token.address, value, unlockTimeUTC, infinity()))
             .to.be.revertedWith("ERC20: transfer amount exceeds balance");
     });
 
     it("Doesn't allow to deposit not supported token", async () => {
         const unlockTimeUTC = now() + 3600
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, utils.parseEther("10"), unlockTimeUTC, 0))
+            (token.address, utils.parseEther("10"), unlockTimeUTC, infinity()))
             .to.be.revertedWith("Token not supported");
     });
 
@@ -187,8 +187,8 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, value, unlockTimeUTC, 0)).to.emit(freezer, "NewDeposit").withArgs(
-                token.address, user.address, value, unlockTimeUTC, 0, 0
+            (token.address, value, unlockTimeUTC, infinity())).to.emit(freezer, "NewDeposit").withArgs(
+                token.address, user.address, value, unlockTimeUTC, infinity(), 0
         )
 
         await expect(asUser(freezer)['addToDepositERC20(uint256,uint256)']
@@ -200,7 +200,7 @@ describe('TestCryptoFreezer', () => {
         await expect(deposit.token).to.eq(token.address);
         await expect(deposit.value).to.eq(value.add(value));
         await expect(deposit.unlockTimeUTC).to.eq(unlockTimeUTC);
-        await expect(deposit.minPrice).to.eq(0);
+        await expect(deposit.minPrice).to.eq(infinity());
 
         const newBalanceUser = await token.balanceOf(user.address)
         const newBalanceFreezer = await token.balanceOf(freezer.address)
@@ -215,8 +215,8 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
         await expect(asUser(freezer)['depositETH(uint256,uint256)']
-            (unlockTimeUTC, 0, {value: value})).to.emit(freezer, "NewDeposit").withArgs(
-                zeroAddress(), user.address, value, unlockTimeUTC, 0, 0
+            (unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 0
         )
 
         await expect(asUser(freezer)['addToDepositETH(uint256)']
@@ -228,7 +228,7 @@ describe('TestCryptoFreezer', () => {
         await expect(deposit.token).to.eq(zeroAddress());
         await expect(deposit.value).to.eq(value.add(value));
         await expect(deposit.unlockTimeUTC).to.eq(unlockTimeUTC);
-        await expect(deposit.minPrice).to.eq(0);
+        await expect(deposit.minPrice).to.eq(infinity());
 
         const newBalanceFreezer = await provider.getBalance(freezer.address)
 
@@ -240,8 +240,8 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, value, unlockTimeUTC, 0)).to.emit(freezer, "NewDeposit").withArgs(
-                token.address, user.address, value, unlockTimeUTC, 0, 0
+            (token.address, value, unlockTimeUTC, infinity())).to.emit(freezer, "NewDeposit").withArgs(
+                token.address, user.address, value, unlockTimeUTC, infinity(), 0
         )
 
         await expect(asUser(freezer)['addToDepositERC20(uint256,uint256)']
@@ -251,8 +251,8 @@ describe('TestCryptoFreezer', () => {
             (1, value)).to.be.revertedWith("Invalid deposit index")
 
         await expect(asUser(freezer)['depositETH(uint256,uint256)']
-            (unlockTimeUTC, 0, {value: value})).to.emit(freezer, "NewDeposit").withArgs(
-                zeroAddress(), user.address, value, unlockTimeUTC, 0, 1
+            (unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 1
         )
 
         await expect(asUser(freezer)['addToDepositERC20(uint256,uint256)']
@@ -263,8 +263,8 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
         await expect(asUser(freezer)['depositETH(uint256,uint256)']
-            (unlockTimeUTC, 0, {value: value})).to.emit(freezer, "NewDeposit").withArgs(
-                zeroAddress(), user.address, value, unlockTimeUTC, 0, 0
+            (unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 0
         )
 
         await expect(asUser(freezer)['addToDepositETH(uint256)']
@@ -275,8 +275,8 @@ describe('TestCryptoFreezer', () => {
 
         await freezer.addSupportedToken(token.address)
         await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-            (token.address, value, unlockTimeUTC, 0)).to.emit(freezer, "NewDeposit").withArgs(
-                token.address, user.address, value, unlockTimeUTC, 0, 1
+            (token.address, value, unlockTimeUTC, infinity())).to.emit(freezer, "NewDeposit").withArgs(
+                token.address, user.address, value, unlockTimeUTC, infinity(), 1
         )
 
         await expect(asUser(freezer)['addToDepositETH(uint256)']
@@ -291,8 +291,8 @@ describe('TestCryptoFreezer', () => {
         beforeEach(async () => {
             await freezer.addSupportedToken(token.address)
             await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
-                (token.address, value, unlockTimeUTC, 0)).to.emit(freezer, "NewDeposit").withArgs(
-                token.address, user.address, value, unlockTimeUTC, 0, 0
+                (token.address, value, unlockTimeUTC, infinity())).to.emit(freezer, "NewDeposit").withArgs(
+                token.address, user.address, value, unlockTimeUTC, infinity(), 0
             )
         })
 
@@ -315,7 +315,7 @@ describe('TestCryptoFreezer', () => {
 
                 await expect(asUser(freezer)['withdrawERC20(address,uint256)']
                     (user.address, 0)).to.emit(freezer, "Withdraw")
-                    .withArgs(token.address, user.address, value, unlockTimeUTC, 0)
+                    .withArgs(token.address, user.address, value, unlockTimeUTC, infinity())
 
                 const deposit = await freezer.deposits(user.address, 0)
                 await expect(deposit.token).to.eq(zeroAddress());
@@ -330,7 +330,7 @@ describe('TestCryptoFreezer', () => {
             it('Cannot withdraw twice', async () => {
                 await expect(asUser(freezer)['withdrawERC20(address,uint256)']
                     (user.address, 0)).to.emit(freezer, "Withdraw")
-                    .withArgs(token.address, user.address, value, unlockTimeUTC, 0)
+                    .withArgs(token.address, user.address, value, unlockTimeUTC, infinity())
 
                 await expect(asUser(freezer)['withdrawERC20(address,uint256)']
                     (user.address, 0)).to.be.revertedWith("Deposit does not exist")
@@ -360,8 +360,8 @@ describe('TestCryptoFreezer', () => {
 
         beforeEach(async () => {
             await expect(asUser(freezer)['depositETH(uint256,uint256)']
-                (unlockTimeUTC, 0, {value: value})).to.emit(freezer, "NewDeposit").withArgs(
-                zeroAddress(), user.address, value, unlockTimeUTC, 0, 0
+                (unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 0
             )
         })
 
@@ -382,7 +382,7 @@ describe('TestCryptoFreezer', () => {
             it('Withdraws ETH deposit', async () => {
                 await expect(asUser(freezer)['withdrawETH(address,uint256)']
                     (user.address, 0)).to.emit(freezer, "Withdraw")
-                    .withArgs(zeroAddress(), user.address, value, unlockTimeUTC, 0)
+                    .withArgs(zeroAddress(), user.address, value, unlockTimeUTC, infinity())
 
                 const deposit = await freezer.deposits(user.address, 0)
                 await expect(deposit.token).to.eq(zeroAddress());
@@ -394,7 +394,7 @@ describe('TestCryptoFreezer', () => {
             it('Cannot withdraw twice', async () => {
                 await expect(asUser(freezer)['withdrawETH(address,uint256)']
                     (user.address, 0)).to.emit(freezer, "Withdraw")
-                    .withArgs(zeroAddress(), user.address, value, unlockTimeUTC, 0)
+                    .withArgs(zeroAddress(), user.address, value, unlockTimeUTC, infinity())
 
                 await expect(asUser(freezer)['withdrawETH(address,uint256)']
                     (user.address, 0)).to.be.revertedWith("Deposit does not exist")
