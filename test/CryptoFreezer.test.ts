@@ -312,7 +312,7 @@ describe('TestCryptoFreezer', () => {
                 )
             })
 
-            describe('using simon', () => {
+            describe('using sinon', () => {
                 beforeEach(async () => {
                     const date = new Date()
                     const forwardDays = 1
@@ -381,7 +381,7 @@ describe('TestCryptoFreezer', () => {
                 )
             })
 
-            describe('using simon', () => {
+            describe('using sinon', () => {
                 beforeEach(async () => {
                     const date = new Date()
                     const forwardDays = 1

@@ -1,6 +1,6 @@
 import {readFileSync} from 'fs'
 import {getDefaultProvider, Wallet} from 'ethers'
-import {DummyContractFactory} from '../build'
+import {CryptoFreezerFactory} from '../build'
 
 async function run(args: string[]) {
   if (args.length !== 1) {
@@ -16,14 +16,14 @@ async function run(args: string[]) {
 
 async function deployContracts(deployer: Wallet) {
     console.log('Starting deployment of pawnshop test contracts:')
-    const factory = new DummyContractFactory(deployer)
-    await deployContract(factory, deployer, "Contract Name")
+    const factory = new CryptoFreezerFactory(deployer)
+    await deployContract(factory, deployer)
 }
 
-async function deployContract(factory: DummyContractFactory, deployer: Wallet, name: string) {
-    const contract = await factory.deploy(name)
+async function deployContract(factory: CryptoFreezerFactory, deployer: Wallet) {
+    const contract = await factory.deploy()
     await contract.deployed()
-    console.log(`${name} implementation deployed at ${contract.address}`)
+    console.log(`CryptoFreezer implementation deployed at ${contract.address}`)
 }
 
 run(process.argv.slice(2))
