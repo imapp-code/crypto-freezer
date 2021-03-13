@@ -28,7 +28,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
     mapping(address => Deposit[]) public deposits;
     IPriceFetcher public priceFetcher = IPriceFetcher(0x0);
 
-    address public migrationAgent = address(0);
+    address payable public migrationAgent = address(0);
 
     event SupportedTokenAdded(IERC20 indexed token);
     event NewDeposit(
@@ -41,6 +41,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
     );
     event Withdraw(address indexed token, address indexed owner, uint256 depositIndex, uint256 value, uint256 unlockTimeUTC, uint256 minPrice);
     event AddToDeposit(address indexed owner, uint256 depositIndex, uint256 value);
+    event Migrated(address indexed token, address indexed owner, uint256 depositIndex, uint256 value, uint256 unlockTimeUTC, uint256 minPrice, address indexed target);
 
     constructor() {}
 
@@ -221,7 +222,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         emit AddToDeposit(owner, depositIndex, msg.value);
     }
 
-    function setMigrationAgent(address newMigrationAgent) onlyOwner public {
+    function setMigrationAgent(address payable newMigrationAgent) onlyOwner public {
         migrationAgent = newMigrationAgent;
     }
 
@@ -233,15 +234,24 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
 
         IMigrationAgent agent = IMigrationAgent(migrationAgent);
 
-        agent.makeMigration(msg.sender, depositIndex);
-
-        delete deposits[msg.sender][depositIndex];
-
         if(deposit.token != address(0)) {
             require(IERC20(deposit.token).transfer(agent.migrationTarget(), deposit.value));
         } else { // ETH case
             agent.migrationTarget().transfer(deposit.value);
         }
 
+        agent.makeMigration(msg.sender, depositIndex);
+
+        delete deposits[msg.sender][depositIndex];
+
+        emit Migrated(
+            deposit.token,
+            msg.sender,
+            deposit.value,
+            deposit.unlockTimeUTC,
+            deposit.minPrice,
+            depositIndex,
+            agent.migrationTarget()
+        );
     }
 }

@@ -3,6 +3,7 @@ import {BigNumber, Contract, getDefaultProvider, utils} from 'ethers';
 import {deployContract, MockProvider, solidity} from 'ethereum-waffle';
 import CryptoFreezer from '../build/CryptoFreezer.json';
 import PriceFetcherMock from '../build/PriceFetcherMock.json';
+import MigrationAgentMock from '../build/MigrationAgentMock.json';
 import TestERC20 from '../build/TestERC20.json';
 import {AsWalletFunction, asWalletFactory} from './helpers/asWalletFactory';
 import sinon from 'sinon'
@@ -640,7 +641,52 @@ describe('TestCryptoFreezer', () => {
         const unlockTimeUTC = now() + 3600
         const value = utils.parseEther("10")
 
+        let targetFreezer : Contract;
+        let migrationAgent : Contract;
 
+        beforeEach(async () => {
+            await freezer.addSupportedToken(token.address);
+            await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
+                (token.address, value, unlockTimeUTC, infinity())).to.emit(freezer, "NewDeposit")
+                .withArgs(token.address, user.address, value, unlockTimeUTC, infinity(), 0)
+
+            await expect(asUser(freezer)['depositETH(uint256,uint256)']
+                (unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, "NewDeposit")
+                .withArgs(zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 1)
+
+            targetFreezer = await deployContract(deployer, CryptoFreezer, [])
+            await targetFreezer.addSupportedToken(token.address);
+
+            migrationAgent = await deployContract(deployer, MigrationAgentMock, [freezer.address, targetFreezer.address])
+
+            await freezer.setMigrationAgent(migrationAgent.address)
+        })
+
+        it("Migrates ERC20", async () => {
+            await expect(asUser(freezer).migrate(0)).to.emit(freezer, "Migrated")
+                .withArgs(
+                    token.address,
+                    user.address,
+                    value,
+                    unlockTimeUTC,
+                    infinity(),
+                    0,
+                    migrationAgent.address
+                )
+        })
+
+        it("Migrates ETH", async () => {
+            await expect(asUser(freezer).migrate(1)).to.emit(freezer, "Migrated")
+                .withArgs(
+                    zeroAddress(),
+                    user.address,
+                    value,
+                    unlockTimeUTC,
+                    infinity(),
+                    1,
+                    migrationAgent.address
+                )
+        })
     })
 
 });
