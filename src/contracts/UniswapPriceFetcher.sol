@@ -13,11 +13,13 @@ contract UniswapPriceFetcher is IPriceFetcher {
     IUniswapV2Factory private _uniswapFactory;
 
     uint8 constant public DECIMAL = 8;
-    IERC20  private _usdStableContract = IERC20(0x0);
+    IERC20 private _usdStableContract = IERC20(0x0);
+    IERC20 private _wETHContract = IERC20(0x0);
 
-    constructor (IUniswapV2Factory uniswapFactory, IERC20 usdStableContract) {
+    constructor (IUniswapV2Factory uniswapFactory, IERC20 usdStableContract, IERC20 wETHContract) {
         _uniswapFactory = uniswapFactory;
         _usdStableContract = usdStableContract;
+        _wETHContract = wETHContract;
     }
 
     function decimals() pure public override returns (uint8) {
@@ -55,12 +57,16 @@ contract UniswapPriceFetcher is IPriceFetcher {
     }
 
     function currentPrice(address tokenAddress) view external override returns (uint256) {
+        if(tokenAddress == address(0)) {
+            tokenAddress = address(_wETHContract);
+        }
+
         IUniswapV2Pair pair = IUniswapV2Pair(_uniswapFactory.getPair(tokenAddress, address(_usdStableContract)));
 
         if(address(pair) != address(0)) {
             uint256 reserveUSDAligned; uint256 reserveTokenAligned;
             (reserveUSDAligned, reserveTokenAligned) = _getReserveAligned(pair);
-            return reserveUSDAligned.div(reserveTokenAligned);
+            return (reserveUSDAligned.mul(10**decimals())).div(reserveTokenAligned);
         } else {
             return uint256(-1);
         }

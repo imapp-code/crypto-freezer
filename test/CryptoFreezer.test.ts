@@ -34,7 +34,7 @@ describe('TestCryptoFreezer', () => {
 
     beforeEach(async () => {
         freezer = await deployContract(deployer, CryptoFreezer, []);
-        token = await deployContract(deployer, TestERC20, []);
+        token = await deployContract(deployer, TestERC20, ["CFERC30Test", "CFT", 18]);
         await asUser(token).mint()
         await asUser(token).approve(freezer.address, infinity())
     })
