@@ -673,6 +673,12 @@ describe('TestCryptoFreezer', () => {
                     0,
                     migrationAgent.address
                 )
+
+            const deposit = await freezer.deposits(user.address, 0)
+            await expect(deposit.token).to.eq(zeroAddress());
+            await expect(deposit.value).to.eq(0);
+            await expect(deposit.unlockTimeUTC).to.eq(0);
+            await expect(deposit.minPrice).to.eq(0);
         })
 
         it("Migrates ETH", async () => {
@@ -686,7 +692,69 @@ describe('TestCryptoFreezer', () => {
                     1,
                     migrationAgent.address
                 )
+
+            const deposit = await freezer.deposits(user.address, 1)
+            await expect(deposit.token).to.eq(zeroAddress());
+            await expect(deposit.value).to.eq(0);
+            await expect(deposit.unlockTimeUTC).to.eq(0);
+            await expect(deposit.minPrice).to.eq(0);
+
+            const targetDeposit = await targetFreezer.deposits(user.address, 0)
+            await expect(targetDeposit.token).to.eq(zeroAddress());
+            await expect(targetDeposit.value).to.eq(value);
+            await expect(targetDeposit.unlockTimeUTC).to.eq(unlockTimeUTC);
+            await expect(targetDeposit.minPrice).to.eq(infinity());
         })
+
+        it("Migrates ERC20 and ETH", async () => {
+            await expect(asUser(freezer).migrate(0)).to.emit(freezer, "Migrated")
+                .withArgs(
+                    token.address,
+                    user.address,
+                    value,
+                    unlockTimeUTC,
+                    infinity(),
+                    0,
+                    migrationAgent.address
+                )
+
+            const deposit = await freezer.deposits(user.address, 0)
+            await expect(deposit.token).to.eq(zeroAddress());
+            await expect(deposit.value).to.eq(0);
+            await expect(deposit.unlockTimeUTC).to.eq(0);
+            await expect(deposit.minPrice).to.eq(0);
+
+            const targetDeposit = await targetFreezer.deposits(user.address, 0)
+            await expect(targetDeposit.token).to.eq(token.address);
+            await expect(targetDeposit.value).to.eq(value);
+            await expect(targetDeposit.unlockTimeUTC).to.eq(unlockTimeUTC);
+            await expect(targetDeposit.minPrice).to.eq(infinity());
+
+            await expect(asUser(freezer).migrate(1)).to.emit(freezer, "Migrated")
+                .withArgs(
+                    zeroAddress(),
+                    user.address,
+                    value,
+                    unlockTimeUTC,
+                    infinity(),
+                    1,
+                    migrationAgent.address
+                )
+
+            const depositETH = await freezer.deposits(user.address, 1)
+            await expect(depositETH.token).to.eq(zeroAddress());
+            await expect(depositETH.value).to.eq(0);
+            await expect(depositETH.unlockTimeUTC).to.eq(0);
+            await expect(depositETH.minPrice).to.eq(0);
+
+            const targetDepositETH = await targetFreezer.deposits(user.address, 1)
+            await expect(targetDepositETH.token).to.eq(zeroAddress());
+            await expect(targetDepositETH.value).to.eq(value);
+            await expect(targetDepositETH.unlockTimeUTC).to.eq(unlockTimeUTC);
+            await expect(targetDepositETH.minPrice).to.eq(infinity());
+        })
+
+
     })
 
 });

@@ -15,7 +15,7 @@ async function run(args: string[]) {
 }
 
 async function deployContracts(deployer: Wallet) {
-    console.log('Starting deployment of pawnshop test contracts:')
+    console.log('Starting deployment of freezer test contract:')
     const factory = new CryptoFreezerFactory(deployer)
     await deployContract(factory, deployer)
 }
