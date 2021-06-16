@@ -72,7 +72,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         return _isUnlocked(deposits[owner][depositIndex]);
     }
 
-    function getLastDepositIndex(address owner) public view returns (uint256) {
+    function nextDepositIndex(address owner) public view returns (uint256) {
         return deposits[owner].length;
     }
 
@@ -118,7 +118,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
         require(deposit.value > 0, "Deposit does not exist");
 
         require(_isUnlocked(deposit), "Deposit is locked");
-        require(deposits[owner][depositIndex].token != address(0), "Withdrawing wrong deposit type (ERC20)");
+        require(deposit.token != address(0), "Withdrawing wrong deposit type (ERC20)");
 
         IERC20 token = IERC20(deposit.token);
 
@@ -161,7 +161,7 @@ contract CryptoFreezer is Ownable, ReentrancyGuard {
 
         require(deposit.value > 0, "Deposit does not exist");
         require(_isUnlocked(deposit), "Deposit is locked");
-        require(deposits[owner][depositIndex].token == address(0), "Withdrawing wrong deposit type (ETH)");
+        require(deposit.token == address(0), "Withdrawing wrong deposit type (ETH)");
 
         // Withdrawing
         delete deposits[owner][depositIndex];
