@@ -95,7 +95,7 @@ describe('TestCryptoFreezer', () => {
                 await expect(newBalanceUser).to.eq(balanceUser.sub(value))
                 await expect(newBalanceFreezer).to.eq(balanceFreezer.add(value))
 
-                const lastIndex = await freezer.getLastDepositIndex(user.address)
+                const lastIndex = await freezer.nextDepositIndex(user.address)
                 await expect(lastIndex).to.eq(1)
             });
 
@@ -126,12 +126,15 @@ describe('TestCryptoFreezer', () => {
 
                 await expect(newBalanceFreezer).to.eq(balanceFreezer.add(value))
 
-                const lastIndex = await freezer.getLastDepositIndex(user.address)
+                const lastIndex = await freezer.nextDepositIndex(user.address)
                 await expect(lastIndex).to.eq(1)
             });
 
             it("Allows to deposit ERC20 using different address", async () => {
                 await asDeployer(token).mint()
+                const balanceDeployer = await token.balanceOf(user.address)
+                const balanceFreezer = await token.balanceOf(freezer.address)
+
                 await asDeployer(token).approve(freezer.address, infinity())
                 const unlockTimeUTC = now() + 3600
                 const value = utils.parseEther("10")
@@ -146,6 +149,38 @@ describe('TestCryptoFreezer', () => {
                 await expect(deposit.value).to.eq(value);
                 await expect(deposit.unlockTimeUTC).to.eq(unlockTimeUTC);
                 await expect(deposit.minPrice).to.eq(infinity());
+
+                const newBalanceDeployer = await token.balanceOf(deployer.address)
+                const newBalanceFreezer = await token.balanceOf(freezer.address)
+
+                await expect(newBalanceDeployer).to.eq(balanceDeployer.sub(value))
+                await expect(newBalanceFreezer).to.eq(balanceFreezer.add(value))
+
+                const nextIndex = await freezer.nextDepositIndex(user.address)
+                await expect(nextIndex).to.eq(1)
+            });
+
+            it("Allows to deposit ETH using different address", async () => {
+                const balanceFreezer = await provider.getBalance(freezer.address)
+                const unlockTimeUTC = now() + 3600
+                const value = utils.parseEther("10")
+                await expect(asDeployer(freezer)['depositETH(uint256,uint256,address)']
+                    (unlockTimeUTC, infinity(), user.address, {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                        zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 0
+                )
+
+                const deposit = await freezer.deposits(user.address, 0)
+                await expect(deposit.token).to.eq(zeroAddress());
+                await expect(deposit.value).to.eq(value);
+                await expect(deposit.unlockTimeUTC).to.eq(unlockTimeUTC);
+                await expect(deposit.minPrice).to.eq(infinity());
+
+                const newBalanceFreezer = await provider.getBalance(freezer.address)
+
+                await expect(newBalanceFreezer).to.eq(balanceFreezer.add(value))
+
+                const lastIndex = await freezer.nextDepositIndex(user.address)
+                await expect(lastIndex).to.eq(1)
             });
 
             it("Doesn't allow to deposit for longer period than max time lock period", async () => {
@@ -368,6 +403,20 @@ describe('TestCryptoFreezer', () => {
                         await expect(asUser(freezer)['withdrawERC20(address,uint256)']
                             (zeroAddress(), 0)).to.be.revertedWith("Owner address is 0")
                     })
+
+                    it('Cannot add to an already withdrawn deposit', async () => {
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                            (user.address, 0)).to.emit(freezer, "Withdraw")
+                            .withArgs(token.address, user.address, value, 0, unlockTimeUTC, infinity())
+
+                        await expect(asUser(freezer)['addToDepositERC20(uint256,uint256)']
+                            (0, value)).to.be.revertedWith("Deposit does not exist")
+                    })
+
+                    it('Cannot add to a deposit if unlocked', async () => {
+                        await expect(asUser(freezer)['addToDepositERC20(uint256,uint256)']
+                            (0, value)).to.be.revertedWith("Deposit is unlocked")
+                    })
                 })
             })
 
@@ -413,6 +462,163 @@ describe('TestCryptoFreezer', () => {
                         await expect(asUser(freezer)['withdrawETH(address,uint256)']
                             (user.address, 0)).to.emit(freezer, "Withdraw")
                             .withArgs(zeroAddress(), user.address, value, 0, unlockTimeUTC, infinity())
+
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                            (user.address, 0)).to.be.revertedWith("Deposit does not exist")
+                    })
+
+                    it('Cannot withdraw using wrong function', async () => {
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                            (user.address, 0)).to.be.revertedWith("Withdrawing wrong deposit type (ERC20)")
+                    })
+
+                    it('Cannot withdraw using wrong deposit index', async () => {
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                            (user.address, 1)).to.be.revertedWith("Invalid deposit index")
+                    })
+
+                    it('Cannot withdraw whe owner address is 0', async () => {
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                            (zeroAddress(), 0)).to.be.revertedWith("Owner address is 0")
+                    })
+
+                    it('Cannot add to an already withdrawn deposit', async () => {
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                            (user.address, 0)).to.emit(freezer, "Withdraw")
+                            .withArgs(zeroAddress(), user.address, value, 0, unlockTimeUTC, infinity())
+
+                        await expect(asUser(freezer)['addToDepositETH(uint256)']
+                            (0, {value: value})).to.be.revertedWith("Deposit does not exist")
+                    })
+
+                    it('Cannot add to a deposit if unlocked', async () => {
+                        await expect(asUser(freezer)['addToDepositETH(uint256)']
+                            (0, {value: value})).revertedWith("Deposit is unlocked")
+                    })
+                })
+            })
+
+            describe('Withdraws ERC20 deposit, which has been added to first', () => {
+                const unlockTimeUTC = now() + 3600
+                const value = utils.parseEther("10")
+                let sinonClock: sinon.SinonFakeTimers
+
+                beforeEach(async () => {
+                    await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)']
+                        (token.address, value, unlockTimeUTC, infinity())).to.emit(freezer, "NewDeposit").withArgs(
+                        token.address, user.address, value, unlockTimeUTC, infinity(), 0
+                    )
+
+                    await expect(asUser(freezer)['addToDepositERC20(uint256,uint256)']
+                    (0, value)).to.emit(freezer, "AddToDeposit").withArgs(
+                        user.address, 0, value
+                    )
+                })
+
+                describe('using sinon', () => {
+                    beforeEach(async () => {
+                        const date = new Date()
+                        const forwardDays = 1
+                        date.setDate(date.getDate() + forwardDays)
+                        sinonClock = sinon.useFakeTimers({
+                            now: date,
+                            toFake: ['Date'],
+                        })
+                    })
+                    afterEach(async () => {
+                        sinonClock.restore()
+                    })
+
+                    it('Withdraws ERC20 deposit', async () => {
+                        const balance = await token.balanceOf(user.address)
+
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                            (user.address, 0)).to.emit(freezer, "Withdraw")
+                            .withArgs(token.address, user.address, value.add(value), 0, unlockTimeUTC, infinity())
+
+                        const deposit = await freezer.deposits(user.address, 0)
+                        await expect(deposit.token).to.eq(zeroAddress());
+                        await expect(deposit.value).to.eq(0);
+                        await expect(deposit.unlockTimeUTC).to.eq(0);
+                        await expect(deposit.minPrice).to.eq(0);
+
+                        const newBalance = await token.balanceOf(user.address)
+                        await expect(newBalance).to.eq(balance.add(value).add(value))
+                    })
+
+                    it('Cannot withdraw twice', async () => {
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                            (user.address, 0)).to.emit(freezer, "Withdraw")
+                            .withArgs(token.address, user.address, value.add(value), 0, unlockTimeUTC, infinity())
+
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                            (user.address, 0)).to.be.revertedWith("Deposit does not exist")
+                    })
+
+                    it('Cannot withdraw using wrong function', async () => {
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                            (user.address, 0)).to.be.revertedWith("Withdrawing wrong deposit type (ETH)")
+                    })
+
+                    it('Cannot withdraw using wrong deposit index', async () => {
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                            (user.address, 1)).to.be.revertedWith("Invalid deposit index")
+                    })
+
+                    it('Cannot withdraw when owner address is 0', async () => {
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)']
+                            (zeroAddress(), 0)).to.be.revertedWith("Owner address is 0")
+                    })
+                })
+            })
+
+            describe('Withdraws ETH deposit, which has been added to first', async () => {
+                const unlockTimeUTC = now() + 3600
+                const value = utils.parseEther("10")
+                let sinonClock: sinon.SinonFakeTimers
+
+                beforeEach(async () => {
+                    await expect(asUser(freezer)['depositETH(uint256,uint256)']
+                        (unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, "NewDeposit").withArgs(
+                        zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 0
+                    )
+
+                    await expect(asUser(freezer)['addToDepositETH(uint256)']
+                    (0, {value: value})).to.emit(freezer, "AddToDeposit").withArgs(
+                        user.address, 0, value
+                    )
+                })
+
+                describe('using sinon', () => {
+                    beforeEach(async () => {
+                        const date = new Date()
+                        const forwardDays = 1
+                        date.setDate(date.getDate() + forwardDays)
+                        sinonClock = sinon.useFakeTimers({
+                            now: date,
+                            toFake: ['Date'],
+                        })
+                    })
+                    afterEach(async () => {
+                        sinonClock.restore()
+                    })
+
+                    it('Withdraws ETH deposit', async () => {
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                            (user.address, 0)).to.emit(freezer, "Withdraw")
+                            .withArgs(zeroAddress(), user.address, value.add(value), 0, unlockTimeUTC, infinity())
+
+                        const deposit = await freezer.deposits(user.address, 0)
+                        await expect(deposit.token).to.eq(zeroAddress());
+                        await expect(deposit.value).to.eq(0);
+                        await expect(deposit.unlockTimeUTC).to.eq(0);
+                        await expect(deposit.minPrice).to.eq(0);
+                    })
+
+                    it('Cannot withdraw twice', async () => {
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)']
+                            (user.address, 0)).to.emit(freezer, "Withdraw")
+                            .withArgs(zeroAddress(), user.address, value.add(value), 0, unlockTimeUTC, infinity())
 
                         await expect(asUser(freezer)['withdrawETH(address,uint256)']
                             (user.address, 0)).to.be.revertedWith("Deposit does not exist")
@@ -679,6 +885,12 @@ describe('TestCryptoFreezer', () => {
             await expect(deposit.value).to.eq(0);
             await expect(deposit.unlockTimeUTC).to.eq(0);
             await expect(deposit.minPrice).to.eq(0);
+
+            const targetDeposit = await targetFreezer.deposits(user.address, 0)
+            await expect(targetDeposit.token).to.eq(token.address);
+            await expect(targetDeposit.value).to.eq(value);
+            await expect(targetDeposit.unlockTimeUTC).to.eq(unlockTimeUTC);
+            await expect(targetDeposit.minPrice).to.eq(infinity());
         })
 
         it("Migrates ETH", async () => {
