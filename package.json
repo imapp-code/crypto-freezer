@@ -18,6 +18,7 @@
     "clean:contracts": "rimraf build",
     "compile": "waffle waffle.json && yarn typechain",
     "typechain": "typechain --target ethers-v5 --outDir build 'build/*.json'",
+    "typecheck": "tsc --noEmit",
     "deploy": "node dist/src/index.js secrets/example.json"
   },
   "dependencies": {
