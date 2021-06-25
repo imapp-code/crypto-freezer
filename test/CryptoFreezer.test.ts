@@ -641,6 +641,114 @@ describe('TestCryptoFreezer', () => {
                     })
                 })
             })
+
+            describe('Advanced test case', () => {
+                const unlockTimeUTC = now() + 3600
+                const value = utils.parseEther('10')
+                let sinonClock: sinon.SinonFakeTimers
+
+                beforeEach(async () => {
+                    await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)'](
+                        token.address, value, unlockTimeUTC, infinity()))
+                        .to.emit(freezer, 'NewDeposit').withArgs(
+                            token.address, user.address, value, unlockTimeUTC, infinity(), 0)
+
+                    await expect(asUser(freezer)['depositERC20(address,uint256,uint256,uint256)'](
+                        token.address, value, unlockTimeUTC, infinity()))
+                        .to.emit(freezer, 'NewDeposit').withArgs(
+                            token.address, user.address, value, unlockTimeUTC, infinity(), 1)
+
+                    await expect(asUser(freezer)['depositETH(uint256,uint256)'](
+                        unlockTimeUTC, infinity(), {value: value})).to.emit(freezer, 'NewDeposit')
+                        .withArgs(zeroAddress(), user.address, value, unlockTimeUTC, infinity(), 2)
+                })
+
+                describe('using sinon', () => {
+                    beforeEach(async () => {
+                        const date = new Date()
+                        const forwardDays = 1
+                        date.setDate(date.getDate() + forwardDays)
+                        sinonClock = sinon.useFakeTimers({
+                            now: date,
+                            toFake: ['Date'],
+                        })
+                    })
+                    afterEach(async () => {
+                        sinonClock.restore()
+                    })
+
+                    it('Withdraws deposits 1 and 0 and 2', async () => {
+                        const balance = await token.balanceOf(user.address)
+
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)'](user.address, 1))
+                            .to.emit(freezer, 'Withdraw')
+                            .withArgs(token.address, user.address, value, 1, unlockTimeUTC, infinity())
+
+                        const deposit1 = await freezer.deposits(user.address, 1)
+                        await expect(deposit1.token).to.eq(zeroAddress())
+                        await expect(deposit1.value).to.eq(0)
+                        await expect(deposit1.unlockTimeUTC).to.eq(0)
+                        await expect(deposit1.minPrice).to.eq(0)
+
+                        const newBalance1 = await token.balanceOf(user.address)
+                        await expect(newBalance1).to.eq(balance.add(value))
+
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)'](user.address, 0))
+                            .to.emit(freezer, 'Withdraw')
+                            .withArgs(token.address, user.address, value, 0, unlockTimeUTC, infinity())
+
+                        const deposit0 = await freezer.deposits(user.address, 0)
+                        await expect(deposit0.token).to.eq(zeroAddress())
+                        await expect(deposit0.value).to.eq(0)
+                        await expect(deposit0.unlockTimeUTC).to.eq(0)
+                        await expect(deposit0.minPrice).to.eq(0)
+
+                        const newBalance0 = await token.balanceOf(user.address)
+                        await expect(newBalance0).to.eq(balance.add(value).add(value))
+
+                        const balanceEth = await provider.getBalance(user.address)
+
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)'](user.address, 2))
+                            .to.emit(freezer, 'Withdraw')
+                            .withArgs(zeroAddress(), user.address, value, 2, unlockTimeUTC, infinity())
+
+                        const deposit = await freezer.deposits(user.address, 2)
+                        await expect(deposit.token).to.eq(zeroAddress())
+                        await expect(deposit.value).to.eq(0)
+                        await expect(deposit.unlockTimeUTC).to.eq(0)
+                        await expect(deposit.minPrice).to.eq(0)
+
+                        const balanceEthNew = await provider.getBalance(user.address)
+
+                        await expect(balanceEthNew).to.lt(balanceEth.add(value))
+                        await expect(balanceEthNew.add(utils.parseEther('1'))).to.gt(balanceEth.add(value))
+                    })
+
+                    it('Cannot withdraw 0 twice', async () => {
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)'](user.address, 0))
+                            .to.emit(freezer, 'Withdraw')
+                            .withArgs(token.address, user.address, value, 0, unlockTimeUTC, infinity())
+
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)'](user.address, 0))
+                            .to.be.revertedWith('Deposit does not exist')
+                    })
+
+                    it('Cannot withdraw using wrong function', async () => {
+                        await expect(asUser(freezer)['withdrawETH(address,uint256)'](user.address, 0))
+                            .to.be.revertedWith('Withdrawing wrong deposit type (ETH)')
+                    })
+
+                    it('Cannot withdraw using wrong deposit index', async () => {
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)'](user.address, 3))
+                            .to.be.revertedWith('Invalid deposit index')
+                    })
+
+                    it('Cannot withdraw when owner address is 0', async () => {
+                        await expect(asUser(freezer)['withdrawERC20(address,uint256)'](zeroAddress(), 0))
+                            .to.be.revertedWith('Owner address is 0')
+                    })
+                })
+            })
         })
     }
 
