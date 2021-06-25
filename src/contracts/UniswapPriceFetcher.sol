@@ -22,17 +22,17 @@ contract UniswapPriceFetcher is IPriceFetcher {
         _wETHContract = wETHContract;
     }
 
-    function decimals() pure public override returns (uint8) {
+    function decimals() public pure override returns (uint8) {
         return DECIMAL;
     }
 
-    function _alignValue(uint256 value, uint8 dec, uint8 targetDec) pure internal returns (uint256) {
+    function _alignValue(uint256 value, uint8 dec, uint8 targetDec) internal pure returns (uint256) {
         return targetDec > dec ?
             value.mul((10**(targetDec - dec))) :
             value.div((10**(dec - targetDec)));
     }
 
-    function _getReserveAligned(IUniswapV2Pair pair) view internal returns (uint256, uint256) {
+    function _getReserveAligned(IUniswapV2Pair pair) internal view returns (uint256, uint256) {
         uint112 reserve0; uint112 reserve1;
             (reserve0, reserve1,) = pair.getReserves();
         ERC20 usdToken;
@@ -56,7 +56,7 @@ contract UniswapPriceFetcher is IPriceFetcher {
                 _alignValue(reserveToken, token.decimals(), decimals()));
     }
 
-    function currentPrice(address tokenAddress) view external override returns (uint256) {
+    function currentPrice(address tokenAddress) external view override returns (uint256) {
         if(tokenAddress == address(0)) {
             tokenAddress = address(_wETHContract);
         }
