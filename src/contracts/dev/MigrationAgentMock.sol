@@ -13,8 +13,6 @@ contract MigrationAgentMock is  IMigrationAgent, ReentrancyGuard {
         _freezerTarget = freezerTarget;
     }
 
-    receive() external payable override {}
-
     function makeMigration(address owner, uint256 depositIndex) external nonReentrant override {
         (address token, uint256 value, uint256 unlockTimeUTC, uint256 minPrice) =
             _freezerSource.deposits(owner, depositIndex);

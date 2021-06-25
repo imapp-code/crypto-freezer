@@ -2,10 +2,9 @@
 
 pragma solidity 0.7.6;
 
-import '../IPriceFetcher.sol';
+import "../IPriceFetcher.sol";
 
 contract PriceFetcherMock is IPriceFetcher {
-    constructor () {}
 
     mapping (address => uint256) private _prices;
 
@@ -13,11 +12,11 @@ contract PriceFetcherMock is IPriceFetcher {
         _prices[tokenAddress] = price;
     }
 
-    function decimals() pure public override returns (uint8) {
+    function decimals() public pure override returns (uint8) {
         return 8;
     }
 
-    function currentPrice(address tokenAddress) view external override returns (uint256) {
+    function currentPrice(address tokenAddress) external view override returns (uint256) {
         return _prices[tokenAddress];
     }
 }
